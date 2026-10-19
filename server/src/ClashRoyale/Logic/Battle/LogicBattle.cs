@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using ClashRoyale.Core;
@@ -828,10 +829,17 @@ namespace ClashRoyale.Logic.Battle
                         }
                         else
                         {
+                            // ClashRetro : le minuteur tourne toutes les 100 ms pour relayer une pose
+                            // sans attendre ; sans commande, un battement par demi-seconde comme avant.
+                            var turn = BattleTime;
+                            var queue = GetOwnQueue(player.Home.Id);
+                            if ((queue?.Count ?? 0) == 0 && LastTurnSent.TryGetValue(player.Home.Id, out var last) &&
+                                last == turn) continue;
+                            LastTurnSent[player.Home.Id] = turn;
                             await new SectorHearbeatMessage(player.Device)
                             {
-                                Turn = BattleTime,
-                                Commands = GetOwnQueue(player.Home.Id)
+                                Turn = turn,
+                                Commands = queue
                             }.SendAsync();
                         }
                     }
@@ -876,8 +884,39 @@ namespace ClashRoyale.Logic.Battle
         {
             if (!_left.Contains(player)) _left.Add(player);
             Remove(player);
-            if (Count > 0 && Reports.Count >= Count && Reports.Count > 0)
-                ReportEnd(this[0], Reports[this[0].Home.Id]);
+            if (Count > 0 && Reports.TryGetValue(this[0].Home.Id, out var remaining))
+                ReportEnd(this[0], remaining);
+        }
+
+        /// <summary>
+        ///     Abandon demandé par un client ClashRetro (bouton « Quitter ») : il perd, l'adversaire
+        ///     est prévenu (événement ForfeitEvent) et gagne aussitôt.
+        /// </summary>
+        public const int ForfeitOutcome = 3;
+        public const int ForfeitEvent = 100;
+        private long _forfeited;
+
+        private async void Forfeit(Player player, BattleReport report)
+        {
+            lock (Reports)
+            {
+                if (_resolved || _forfeited != 0 || _order.Count < 2) return;
+                _forfeited = player.Home.Id;
+                Reports[player.Home.Id] = new BattleReport
+                {
+                    Crowns = report.Crowns, EnemyCrowns = report.EnemyCrowns, Outcome = 2, Ticks = report.Ticks
+                };
+            }
+
+            foreach (var other in GetAllOthers(player.Home.Id))
+                if (other.Device.IsConnected)
+                    await new BattleEventMessage(other.Device)
+                    {
+                        Type = ForfeitEvent, HighId = player.Home.HighId, LowId = player.Home.LowId, Tick = report.Ticks
+                    }.SendAsync();
+
+            Leave(player);
+            player.Save();
         }
 
         private static BattleReport Mirror(BattleReport r)
@@ -917,6 +956,12 @@ namespace ClashRoyale.Logic.Battle
         /// </summary>
         public async void ReportEnd(Player player, BattleReport report)
         {
+            if (report.Outcome == ForfeitOutcome)
+            {
+                Forfeit(player, report);
+                return;
+            }
+
             lock (Reports)
             {
                 Reports[player.Home.Id] = report;
@@ -924,74 +969,88 @@ namespace ClashRoyale.Logic.Battle
                 _resolved = true;
             }
 
-            // Joueurs dans l'ordre de départ (ceux qui sont partis compris) ; un abandon est déduit du
-            // rapport de celui qui est resté.
-            var a = _order[0];
-            var b = _order[1];
-            var ra = Reports.TryGetValue(a.Home.Id, out var reportA) ? reportA : Mirror(Reports[b.Home.Id]);
-            var rb = Reports.TryGetValue(b.Home.Id, out var reportB) ? reportB : Mirror(ra);
-            var agree = ra.Crowns == rb.EnemyCrowns && ra.EnemyCrowns == rb.Crowns &&
-                        (ra.Outcome == 0 ? rb.Outcome == 0 : ra.Outcome + rb.Outcome == 3);
-            var winner = !agree || ra.Outcome == 0 ? -1 : ra.Outcome == 1 ? 0 : 1;
-
-            var trophies = new int[2];
-            if (winner >= 0 && !IsFriendly)
+            // Une exception ici (méthode async void) arrêterait tout le serveur : on la journalise.
+            try
             {
-                var w = this[winner].Home.Arena.Trophies;
-                var l = this[1 - winner].Home.Arena.Trophies;
-                var delta = Math.Clamp(30 + (l - w) / 12, 20, 40);
-                trophies[winner] = delta;
-                trophies[1 - winner] = -Math.Min(delta, this[1 - winner].Home.Arena.Trophies);
-            }
-
-            for (var i = 0; i < 2; i++)
-            {
-                var participant = _order[i];
-                var home = participant.Home;
-                var r = i == 0 ? ra : rb;
-                if (!IsFriendly)
+                // Joueurs dans l'ordre de départ (ceux qui sont partis compris) ; un abandon est déduit du
+                // rapport de celui qui est resté.
+                var a = _order[0];
+                var b = _order[1];
+                var ra = Reports.TryGetValue(a.Home.Id, out var reportA) ? reportA : Mirror(Reports[b.Home.Id]);
+                var rb = Reports.TryGetValue(b.Home.Id, out var reportB) ? reportB : Mirror(ra);
+                var agree = ra.Crowns == rb.EnemyCrowns && ra.EnemyCrowns == rb.Crowns &&
+                            (ra.Outcome == 0 ? rb.Outcome == 0 : ra.Outcome + rb.Outcome == 3);
+                var winner = !agree || ra.Outcome == 0 ? -1 : ra.Outcome == 1 ? 0 : 1;
+                // Abandon volontaire : l'autre gagne, quels que soient les rapports.
+                if (_forfeited != 0)
                 {
-                    home.Stats.Record(winner == i, winner == 1 - i, r.Crowns,
-                        PlayedCards.TryGetValue(home.Id, out var played) ? played : new List<int>());
-                    home.AddCrowns(r.Crowns);
-                    home.Arena.AddTrophies(trophies[i]);
-                    home.Stats.HighestTrophies = Math.Max(home.Stats.HighestTrophies, home.Arena.Trophies);
-                    if (winner == i)
+                    agree = true;
+                    winner = a.Home.Id == _forfeited ? 1 : 0;
+                }
+
+                var trophies = new int[2];
+                if (winner >= 0 && !IsFriendly)
+                {
+                    var w = _order[winner].Home.Arena.Trophies;
+                    var l = _order[1 - winner].Home.Arena.Trophies;
+                    var delta = Math.Clamp(30 + (l - w) / 12, 20, 40);
+                    trophies[winner] = delta;
+                    trophies[1 - winner] = -Math.Min(delta, _order[1 - winner].Home.Arena.Trophies);
+                }
+
+                for (var i = 0; i < 2; i++)
+                {
+                    var participant = _order[i];
+                    var home = participant.Home;
+                    var r = i == 0 ? ra : rb;
+                    if (!IsFriendly)
                     {
-                        home.Gold += Csv.Tables.Get(Csv.Files.Arenas)
-                            .GetDataWithInstanceId<Arenas>(home.Arena.CurrentArena)?.BattleRewardGold ?? 0;
-                        home.ChestSlots.AddWinChest();
+                        home.Stats.Record(winner == i, winner == 1 - i, r.Crowns,
+                            PlayedCards.TryGetValue(home.Id, out var played) ? played : new List<int>());
+                        home.AddCrowns(r.Crowns);
+                        home.Arena.AddTrophies(trophies[i]);
+                        home.Stats.HighestTrophies = Math.Max(home.Stats.HighestTrophies, home.Arena.Trophies);
+                        if (winner == i)
+                        {
+                            home.Gold += Csv.Tables.Get(Csv.Files.Arenas)
+                                .GetDataWithInstanceId<Arenas>(home.Arena.CurrentArena)?.BattleRewardGold ?? 0;
+                            home.ChestSlots.AddWinChest();
+                        }
                     }
+
+                    if (_left.Contains(participant))
+                    {
+                        participant.Save();
+                        continue;
+                    }
+
+                    await new BattleResultMessage(participant.Device)
+                    {
+                        TrophyReward = trophies[i],
+                        OpponentTrophyReward = trophies[1 - i]
+                    }.SendAsync();
                 }
 
-                if (_left.Contains(participant))
+                BattleLog.Write(new
                 {
-                    participant.Save();
-                    continue;
-                }
+                    time = DateTime.UtcNow.ToString("o"), arena = Arena, location = Location, friendly = IsFriendly,
+                    agree, winner, ticks = Math.Max(ra.Ticks, rb.Ticks),
+                    players = new[] {a, b}.Select((pl, i) => new
+                    {
+                        id = BattleLog.Anonymize(pl.Home.Id), level = pl.Home.ExpLevel, trophies = pl.Home.Arena.Trophies,
+                        crowns = i == 0 ? ra.Crowns : rb.Crowns,
+                        deck = pl.Home.Deck.Take(8).Select(c => new {card = c.GlobalId, level = c.Level})
+                    }),
+                    placements = Placements
+                });
 
-                await new BattleResultMessage(participant.Device)
-                {
-                    TrophyReward = trophies[i],
-                    OpponentTrophyReward = trophies[1 - i]
-                }.SendAsync();
+                foreach (var player1 in ToArray())
+                    Remove(player1);
             }
-
-            BattleLog.Write(new
+            catch (Exception exception)
             {
-                time = DateTime.UtcNow.ToString("o"), arena = Arena, location = Location, friendly = IsFriendly,
-                agree, winner, ticks = Math.Max(ra.Ticks, rb.Ticks),
-                players = new[] {a, b}.Select((pl, i) => new
-                {
-                    id = BattleLog.Anonymize(pl.Home.Id), level = pl.Home.ExpLevel, trophies = pl.Home.Arena.Trophies,
-                    crowns = i == 0 ? ra.Crowns : rb.Crowns,
-                    deck = pl.Home.Deck.Take(8).Select(c => new {card = c.GlobalId, level = c.Level})
-                }),
-                placements = Placements
-            });
-
-            foreach (var player1 in ToArray())
-                Remove(player1);
+                Logger.Log($"Fin de combat non résolue : {exception}", GetType(), ErrorLevel.Error);
+            }
         }
 
         public new void Remove(Player player)
@@ -1091,7 +1150,8 @@ namespace ClashRoyale.Logic.Battle
 
         #region Objects 
 
-        public Timer BattleTimer = new Timer(500);
+        public Timer BattleTimer = new Timer(100);
+        private readonly ConcurrentDictionary<long, int> LastTurnSent = new ConcurrentDictionary<long, int>();
         public LogicReplay Replay = new LogicReplay();
         public Dictionary<long, Queue<byte[]>> Commands = new Dictionary<long, Queue<byte[]>>();
         public long BattleId { get; set; }
