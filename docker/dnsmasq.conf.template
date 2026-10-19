@@ -1,0 +1,9 @@
+# Serveur de jeu
+address=/game.clashroyaleapp.com/__SERVER_IP__
+address=/gamec.clashroyaleapp.com/__SERVER_IP__
+# Télémétrie / services tiers (réponse 0.0.0.0)
+address=/service.supercell.net/0.0.0.0
+address=/helpshift.com/0.0.0.0
+address=/google-analytics.com/0.0.0.0
+address=/app-measurement.com/0.0.0.0
+address=/graph.facebook.com/0.0.0.0

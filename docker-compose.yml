@@ -1,0 +1,94 @@
+# ClashRetro — serveur privé Clash Royale 1.9 (Android 1.9.2 / iOS 1.9.0).
+# TrueNAS SCALE : voir docs/TRUENAS.md. Les secrets viennent de .env (jamais commité).
+name: clashretro
+
+x-db-env: &db-env
+  MYSQL_HOST: db
+  MYSQL_DATABASE: ${MYSQL_DATABASE:-clashretro}
+  MYSQL_USER: ${MYSQL_USER:-clashretro}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?définir MYSQL_PASSWORD dans .env}
+
+services:
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-clashretro}
+      MARIADB_USER: ${MYSQL_USER:-clashretro}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:?}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?définir MYSQL_ROOT_PASSWORD dans .env}
+    volumes:
+      - ${DATA_DIR:-./data}/mariadb:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  game:
+    build:
+      context: .
+      dockerfile: docker/game.Dockerfile
+    image: ${GAME_IMAGE:-clashretro-game:local}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      CLUSTER_KEY: ${CLUSTER_KEY:?}
+      PAIRING_SECRET: ${PAIRING_SECRET:?}
+      REQUIRE_INVITE: ${REQUIRE_INVITE:-true}
+      START_GOLD: ${START_GOLD:-5000}
+      START_GEMS: ${START_GEMS:-1000000}
+      CARD_MULTIPLIER: ${CARD_MULTIPLIER:-3}
+      GOLD_MULTIPLIER: ${GOLD_MULTIPLIER:-5}
+      MIN_CHEST_GOLD: ${MIN_CHEST_GOLD:-100}
+      UNLOCK_TIME_PERCENT: ${UNLOCK_TIME_PERCENT:-25}
+      CHAT_CHEATS: ${CHAT_CHEATS:-false}
+      SHOP_PRICE_PERCENT: ${SHOP_PRICE_PERCENT:-50}
+      BATTLE_LOGS: ${BATTLE_LOGS:-true}
+      BATTLE_LOG_RETENTION_DAYS: ${BATTLE_LOG_RETENTION_DAYS:-90}
+      BATTLE_LOG_SALT: ${BATTLE_LOG_SALT:-}
+    volumes:
+      - ${DATA_DIR:-./data}/logs:/app/logs
+    ports:
+      - "${GAME_PORT:-9339}:9339"
+
+  portal:
+    build: ./portal
+    image: ${PORTAL_IMAGE:-clashretro-portal:local}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      PORTAL_SECRET: ${PORTAL_SECRET:?}
+      PORTAL_SECURE_COOKIE: ${PORTAL_SECURE_COOKIE:-false}
+      INVITE_VALID_DAYS: ${INVITE_VALID_DAYS:-14}
+      BATTLE_LOG_DIR: /logs/battles
+    volumes:
+      - ${DATA_DIR:-./data}/logs:/logs:ro     # journaux de combat anonymes (lecture seule)
+    ports:
+      - "${PORTAL_PORT:-8080}:8080"
+
+  # Optionnel (profil "dns") : redirige les hôtes officiels vers ce serveur et coupe la télémétrie,
+  # pour les clients non patchés (iOS). Pointer le DNS du téléphone/Wi-Fi sur l'IP du NAS.
+  dns:
+    image: alpine:3.20
+    profiles: ["dns"]
+    restart: unless-stopped
+    volumes:
+      - ./docker/dnsmasq.conf.template:/etc/clashretro/dnsmasq.template:ro
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        apk add --no-cache dnsmasq &&
+        sed "s/__SERVER_IP__/${SERVER_IP:?}/g" /etc/clashretro/dnsmasq.template > /etc/dnsmasq.d/clashretro.conf &&
+        exec dnsmasq -k --no-resolv --server=${UPSTREAM_DNS:-1.1.1.1} --conf-dir=/etc/dnsmasq.d,*.conf
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"

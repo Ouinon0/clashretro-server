@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<section style="text-align:center">
+  <h2>Combat amical</h2>
+  <p>Code de ton ami :</p>
+  <p><code id="code" style="font-size:36px;letter-spacing:6px">{{ code }}</code></p>
+  <p><button id="go" style="font-size:18px;padding:12px 20px">Ouvrir ClashRetro et rejoindre</button></p>
+  <p class="muted" id="hint">Le code est copié, puis ClashRetro s'ouvre et rejoint le combat tout seul.
+    Si rien ne se passe, ouvre ClashRetro : Social → Rejoindre.</p>
+  <textarea id="clip" readonly style="position:absolute;left:-9999px">clashretro:{{ code }}</textarea>
+</section>
+<script>
+document.getElementById("go").addEventListener("click", function () {
+  var clip = document.getElementById("clip");
+  var open = function () {
+    // Android : ouvre l'appli par son paquet ; ailleurs le lien est simplement ignoré.
+    window.location.href = "intent:#Intent;package=fr.clashretro.client;" +
+      "action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;end";
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(clip.value).then(open, open);
+  } else {
+    // Portail en http sur le réseau local : l'API presse-papiers n'est pas disponible.
+    clip.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    open();
+  }
+});
+</script>
+{% endblock %}

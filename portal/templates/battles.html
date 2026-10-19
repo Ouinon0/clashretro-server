@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Combats (anonymes)</h2>
+  <p>{{ summary.battles }} combat(s) — {{ summary.draws }} égalité(s) — {{ summary.disagreements }} rapport(s) divergent(s).</p>
+  <p class="muted">Les joueurs n'apparaissent que sous un identifiant haché et salé ; les fichiers sont effacés
+    après la durée de conservation (BATTLE_LOG_RETENTION_DAYS). Source : <code>{{ log_dir }}</code>.</p>
+  <p><a href="{{ url_for('admin_battles_csv') }}">Exporter les statistiques par carte (CSV)</a> —
+    <a href="{{ url_for('admin_battles_raw') }}">Journal brut anonymisé (JSONL, pour une IA)</a></p>
+</section>
+<section>
+  <h2>Par carte</h2>
+  <table>
+    <tr><th>Carte</th><th>Rareté</th><th>Élixir</th><th>Decks</th><th>Poses</th><th>Victoires</th><th>Défaites</th><th>% victoire</th><th>Niveau moy.</th></tr>
+    {% for r in rows %}
+    <tr><td>{{ r.name }}</td><td>{{ r.rarity }}</td><td>{{ r.elixir }}</td><td>{{ r.decks }}</td><td>{{ r.plays }}</td>
+      <td>{{ r.wins }}</td><td>{{ r.losses }}</td><td>{{ r.win_rate if r.win_rate is not none else '—' }}</td>
+      <td>{{ r.avg_level if r.avg_level is not none else '—' }}</td></tr>
+    {% else %}<tr><td colspan="9" class="muted">Aucun combat enregistré.</td></tr>{% endfor %}
+  </table>
+</section>
+{% endblock %}

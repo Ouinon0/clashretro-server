@@ -1,0 +1,81 @@
+# ClashRetro — serveur privé Clash Royale 1.9, pour TrueNAS SCALE (Apps → Discover → ⋮ → Install via YAML).
+# Images construites par GitHub (ghcr.io), rien à compiler sur le NAS. Tout est rangé dans un seul
+# dossier, /mnt/Pool2/data/clash, qui doit appartenir à l'utilisateur 950:950 :
+#   mkdir -p /mnt/Pool2/data/clash && chown 950:950 /mnt/Pool2/data/clash
+#
+# À remplir avant de lancer : les 5 valeurs « CHANGE_ME » (le mot de passe de la base apparaît
+# 2 fois), chacune une longue chaîne aléatoire, par exemple la sortie de « openssl rand -hex 32 ».
+# Ne plus les changer ensuite.
+name: clashretro
+
+x-common: &common
+  user: "950:950"
+  restart: unless-stopped
+  volumes:
+    - /mnt/Pool2/data/clash:/data
+
+x-db: &db
+  MYSQL_HOST: db
+  MYSQL_DATABASE: clashretro
+  MYSQL_USER: clashretro
+  MYSQL_PASSWORD: CHANGE_ME_mot_de_passe_base          # même valeur pour les 3 services
+
+services:
+  db:
+    <<: *common
+    image: ghcr.io/ouinon0/clashretro-db:latest        # MariaDB 11.4 + schéma ClashRetro
+    environment:
+      MARIADB_DATABASE: clashretro
+      MARIADB_USER: clashretro
+      MARIADB_PASSWORD: CHANGE_ME_mot_de_passe_base    # = MYSQL_PASSWORD
+      MARIADB_ROOT_PASSWORD: CHANGE_ME_mot_de_passe_root
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--defaults-file=/data/mariadb/.my-healthcheck.cnf", "--connect", "--innodb_initialized"]
+      start_period: 60s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  game:
+    <<: *common
+    image: ghcr.io/ouinon0/clashretro-game:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "9339:9339"                 # port du jeu (à saisir dans l'appli : IP_DU_NAS:9339)
+    environment:
+      <<: *db
+      GAME_WORK_DIR: /data/game     # config générée et journaux du serveur
+      BATTLE_LOG_DIR: /data/game/logs/battles
+      CLUSTER_KEY: CHANGE_ME_cle_cluster
+      PAIRING_SECRET: CHANGE_ME_secret_appairage
+      # --- Accès ---
+      REQUIRE_INVITE: "true"        # false = n'importe quel téléphone crée un compte (tests seulement)
+      # --- Progression (le jeu d'origine = multiplicateurs 1, durée 100, prix 100) ---
+      START_GOLD: "5000"            # or d'un nouveau compte
+      START_GEMS: "1000000"         # gemmes d'un nouveau compte
+      CARD_MULTIPLIER: "3"          # cartes gagnées dans les coffres × 3
+      GOLD_MULTIPLIER: "5"          # or gagné × 5
+      MIN_CHEST_GOLD: "100"         # or minimum par coffre
+      UNLOCK_TIME_PERCENT: "25"     # durée d'ouverture des coffres (25 % : argent en 45 min au lieu de 3 h)
+      SHOP_PRICE_PERCENT: "50"      # prix du magasin (50 % = moitié prix)
+      CHAT_CHEATS: "false"          # commandes /max, /gold… dans le chat de clan
+      # --- Journal de combat anonyme (statistiques d'équilibrage, sans pseudo ni IP) ---
+      BATTLE_LOGS: "true"
+      BATTLE_LOG_RETENTION_DAYS: "90"
+
+  portal:
+    <<: *common
+    image: ghcr.io/ouinon0/clashretro-portal:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"                 # portail web : comptes, invitations, admin, QR des combats amicaux
+    environment:
+      <<: *db
+      PORTAL_SECRET: CHANGE_ME_secret_portail
+      PORTAL_SECURE_COOKIE: "false" # true si le portail est servi en HTTPS (reverse proxy)
+      INVITE_VALID_DAYS: "14"       # durée de validité d'une invitation
+      BATTLE_LOG_DIR: /data/game/logs/battles
