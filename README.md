@@ -4,25 +4,23 @@ Serveur privé pour jouer entre amis à Clash Royale 1.9 avec le client ClashRet
 
 - **game** : le serveur de jeu (.NET), fork de [retroroyale/ClashRoyale](https://github.com/retroroyale/ClashRoyale)
   (GPL-3.0, détail des modifications dans `server/UPSTREAM.md`) ;
-- **portal** : le portail web (comptes, invitations, appairage des téléphones, administration,
-  statistiques de combat anonymes, page des QR codes de combat amical) ;
+- **portal** (facultatif) : statistiques de combat anonymes, évènements, dons, page des QR codes de
+  combat amical, appairage de l'ancien client 32 bits ;
 - **db** : MariaDB avec le schéma.
 
 Les images sont construites par GitHub Actions et publiées sur `ghcr.io/ouinon0/clashretro-{game,portal,db}`.
 
 ## TrueNAS SCALE (24.10 et suivants)
 
-1. Dans **System → Shell**, créer le dossier de données pour l'utilisateur 950 :
+1. **Apps → Discover → ⋮ → Install via YAML**, nom `clashretro`, coller
+   [`docker-compose.truenas.yml`](docker-compose.truenas.yml), **Save**. Rien à remplir : au premier
+   lancement, le service `init` crée `/mnt/Pool2/data/clash` (droits 950:950) et des secrets
+   aléatoires dans `secrets/`. Seul le chemin `/mnt/Pool2/data/clash` est à adapter s'il n'existe
+   pas de pool `Pool2`. Les réglages du jeu (or, gemmes, durée des coffres, prix…) sont commentés.
 
-   ```bash
-   mkdir -p /mnt/Pool2/data/clash && chown 950:950 /mnt/Pool2/data/clash
-   openssl rand -hex 32   # à lancer 5 fois : une valeur par « CHANGE_ME »
-   ```
-
-2. **Apps → Discover → ⋮ → Install via YAML**, nom `clashretro`, coller
-   [`docker-compose.truenas.yml`](docker-compose.truenas.yml) et remplacer les `CHANGE_ME` (le mot
-   de passe de la base apparaît deux fois, avec la même valeur). Les autres réglages (or, gemmes,
-   durée des coffres, prix du magasin, invitations…) sont commentés dans le fichier.
+2. **Installation d'avant la 0.3** (mots de passe `CHANGE_ME` choisis à la main) : avant **Save**,
+   recopier l'ancienne valeur de `MYSQL_PASSWORD` dans `OLD_DB_PASSWORD` (service `init`). Elle est
+   enregistrée dans `secrets/db_password` au premier démarrage ; on peut ensuite la retirer du YAML.
 
 3. Comptes administrateurs : au démarrage, le serveur crée le dossier
    `/mnt/Pool2/data/clash/game/admin/` avec un fichier `admins.txt` d'exemple. Y ajouter une ligne

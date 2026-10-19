@@ -3,6 +3,15 @@
 # Sans config.json, le serveur retroroyale attend une touche au clavier : on l'écrit toujours ici.
 set -eu
 
+# Secrets dans des fichiers (VAR_FILE, ex. /data/secrets/…) quand ils ne sont pas donnés directement.
+for var in MYSQL_PASSWORD CLUSTER_KEY PAIRING_SECRET BATTLE_LOG_SALT; do
+  file=$(eval "printf '%s' \"\${${var}_FILE:-}\"")
+  current=$(eval "printf '%s' \"\${${var}:-}\"")
+  if [ -z "$current" ] && [ -n "$file" ] && [ -r "$file" ]; then
+    export "$var=$(cat "$file")"
+  fi
+done
+
 : "${MYSQL_DATABASE:?}" "${MYSQL_USER:?}" "${MYSQL_PASSWORD:?}" "${CLUSTER_KEY:?}" "${PAIRING_SECRET:?}"
 
 # Dossier de travail (config.json, journaux) : /app par défaut ; avec un utilisateur imposé

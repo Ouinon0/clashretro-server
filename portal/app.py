@@ -21,6 +21,12 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from flask import Flask, Response, abort, flash, g, redirect, render_template, request, session, url_for
 
+# Secrets dans des fichiers (VAR_FILE, ex. /data/secrets/…) quand ils ne sont pas donnés directement.
+for _var in ("MYSQL_PASSWORD", "PORTAL_SECRET"):
+    if not os.environ.get(_var) and os.environ.get(_var + "_FILE"):
+        with open(os.environ[_var + "_FILE"], encoding="utf-8") as _f:
+            os.environ[_var] = _f.read().strip()
+
 app = Flask(__name__)
 app.secret_key = os.environ["PORTAL_SECRET"]
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
