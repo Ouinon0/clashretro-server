@@ -157,8 +157,8 @@ namespace ClashRoyale.Core
         // --- Actions ---------------------------------------------------------------------------
 
         /// <summary>
-        ///     Nouveau compte : pseudo, mot de passe et code d'invitation (code du premier admin tant
-        ///     qu'il n'y a pas d'admin ; aucun code si le serveur n'exige pas d'invitation).
+        ///     Nouveau compte : pseudo, mot de passe et code d'invitation (aucun code si le serveur n'exige
+        ///     pas d'invitation). Les admins sont créés par le fichier admin/admins.txt (AdminFile).
         /// </summary>
         public static async Task<Result> CreateAsync(string username, string password, string inviteCode,
             long existingPlayerId = 0)
@@ -183,11 +183,7 @@ namespace ClashRoyale.Core
                     long roleId;
                     long? invitationId = null;
                     long? invitedBy = null;
-                    if (await AdminFile.IsBootstrapCodeAsync(connection, tx, code))
-                    {
-                        roleId = await ScalarAsync(connection, tx, "SELECT id FROM roles WHERE name = 'admin'");
-                    }
-                    else if (code != "")
+                    if (code != "")
                     {
                         using (var cmd = new MySqlCommand(
                             "SELECT i.id, i.role_id, i.created_by FROM invitations i JOIN accounts a ON a.id = i.created_by " +
@@ -257,6 +253,46 @@ namespace ClashRoyale.Core
                         Token = player?.Home.UserToken ?? ""
                     };
                 }
+            }
+        }
+
+        /// <summary>
+        ///     admins.txt : passe un compte existant admin (nouveau mot de passe s'il est donné), ou crée
+        ///     un compte admin avec son joueur. Renvoie null si tout va bien, sinon le message d'erreur.
+        /// </summary>
+        public static async Task<string> MakeAdminAsync(string username, string password)
+        {
+            username = (username ?? "").Trim();
+            if (!ValidUsername(username)) return "pseudo invalide (3 à 16 lettres, chiffres, _ - .)";
+            if (password != "" && CheckPassword(password) != null) return CheckPassword(password);
+
+            using (var connection = new MySqlConnection(AccessGate.ConnectionString))
+            {
+                await connection.OpenAsync();
+                var adminRole = await ScalarAsync(connection, null, "SELECT id FROM roles WHERE name = 'admin'");
+                var existing = await ScalarAsync(connection, null, "SELECT id FROM accounts WHERE username = @u",
+                    ("@u", username));
+                if (existing > 0)
+                {
+                    await ExecAsync(connection, null,
+                        "UPDATE accounts SET role_id = @r, disabled_at = NULL WHERE id = @a", ("@r", adminRole),
+                        ("@a", existing));
+                    if (password != "")
+                        await ExecAsync(connection, null, "UPDATE accounts SET password_hash = @h WHERE id = @a",
+                            ("@h", Hash(password)), ("@a", existing));
+                    return null;
+                }
+
+                if (password == "") return "compte inconnu : ajoute « : mot de passe » pour le créer";
+                var player = await PlayerDb.CreateAsync();
+                if (player == null) return "création du joueur impossible";
+                player.Home.Name = username;
+                player.Home.NameSet = 1;
+                await PlayerDb.SaveAsync(player);
+                await ExecAsync(connection, null,
+                    "INSERT INTO accounts (username, password_hash, role_id, player_id) VALUES (@u, @h, @r, @p)",
+                    ("@u", username), ("@h", Hash(password)), ("@r", adminRole), ("@p", player.Home.Id));
+                return null;
             }
         }
 

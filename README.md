@@ -24,9 +24,11 @@ Les images sont construites par GitHub Actions et publiées sur `ghcr.io/ouinon0
    de passe de la base apparaît deux fois, avec la même valeur). Les autres réglages (or, gemmes,
    durée des coffres, prix du magasin, invitations…) sont commentés dans le fichier.
 
-3. Premier compte administrateur : le serveur écrit un code dans
-   `/mnt/Pool2/data/clash/game/admin/premier-admin.txt`. Dans l'appli : « Créer un compte », choisir
-   pseudo et mot de passe, saisir ce code. Le compte est admin et le fichier disparaît.
+3. Comptes administrateurs : au démarrage, le serveur crée le dossier
+   `/mnt/Pool2/data/clash/game/admin/` avec un fichier `admins.txt` d'exemple. Y ajouter une ligne
+   `pseudo : mot de passe` et enregistrer : en quelques secondes le compte admin est créé et le mot
+   de passe est effacé du fichier. Dans l'appli : « Me connecter » avec ce pseudo. Un joueur déjà
+   inscrit : écrire seulement son pseudo pour le passer admin. Même chose pour les admins suivants.
 
 4. Dans l'appli, saisir le serveur `IP_DU_NAS:9339`. Chaque joueur trouve ses codes d'invitation
    dans **Paramètres → Compte** (masqués, révélés puis copiés au toucher, ✓ une fois utilisés) ; un
@@ -50,9 +52,9 @@ alice      | invite | auto        | actif  | quota du rôle : 3 · 0 invité(s) 
   (`code ABCD-2345`, valable 48 h) à donner au joueur, qui choisit un nouveau mot de passe dans
   l'appli (« Me connecter » → « Mot de passe oublié »).
 
-Compte admin créé avant la version 0.3 (portail, `flask create-admin`) : se connecter une fois au
-portail (le mot de passe est converti), puis « Me connecter » dans l'appli avec le même pseudo ;
-le joueur du téléphone déjà appairé est repris. Mot de passe oublié : `nouveau-mdp` dans le fichier.
+Compte admin créé avant la version 0.3 (portail) : l'écrire avec un nouveau mot de passe dans
+`admins.txt` (`pseudo : mot de passe`), puis « Me connecter » dans l'appli ; le joueur du
+téléphone déjà appairé est repris. Mot de passe oublié : `nouveau-mdp` dans le fichier.
 
 Le fichier ne contient ni mot de passe ni jeton : seul l'accès au NAS donne ces droits. Les mots
 de passe sont hachés (PBKDF2-SHA256), les essais limités. Le portail web (port 8080) reste
@@ -77,7 +79,7 @@ Contenu de `/mnt/Pool2/data/clash` : `mariadb/` (base), `game/` (configuration g
 ```bash
 cp .env.example .env      # remplir les secrets
 docker compose up -d --build
-cat data/game/admin/premier-admin.txt   # code du premier admin (comptes créés dans l'appli)
+nano data/game/admin/admins.txt   # « pseudo : mot de passe » pour créer un admin
 ```
 
 ## Données personnelles
