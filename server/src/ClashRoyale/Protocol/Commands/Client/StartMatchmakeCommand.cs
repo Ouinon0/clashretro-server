@@ -54,7 +54,7 @@ namespace ClashRoyale.Protocol.Commands.Client
             }
             else
             {
-                var enemy = Resources.Battles.Dequeue;
+                var enemy = Resources.Battles.TryMatch(Device.Player);
                 if (enemy != null)
                 {
                     var battle = new LogicBattle(false, enemy.Home.Arena.CurrentArena + 1)
@@ -68,10 +68,6 @@ namespace ClashRoyale.Protocol.Commands.Client
                     enemy.Battle = battle;
 
                     battle.Start();
-                }
-                else
-                {
-                    Resources.Battles.Enqueue(Device.Player);
                 }
             }
         }

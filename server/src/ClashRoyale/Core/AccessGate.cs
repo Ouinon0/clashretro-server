@@ -77,6 +77,11 @@ namespace ClashRoyale.Core
 
         private static async Task<Result> CheckExistingAsync(MySqlConnection connection, long playerId)
         {
+            // Compte créé dans le jeu (pseudo + mot de passe) : lié directement au joueur.
+            var account = await Accounts.PlayerAllowedAsync(connection, playerId);
+            if (account == true) return new Result {Allowed = true};
+            if (account == false) return Deny("Compte bloqué par l'admin.");
+
             using (var cmd = new MySqlCommand(
                 "SELECT d.id, a.disabled_at FROM devices d JOIN accounts a ON a.id = d.account_id " +
                 "WHERE d.player_id = @player AND d.status = 'approved' LIMIT 1", connection))
@@ -122,7 +127,8 @@ namespace ClashRoyale.Core
 
                     if (status != "approved")
                         return Deny($"Nouvel appareil.\nCode d'appairage : {pairingCode}\n" +
-                                    "Saisis-le sur le portail avec ton invitation, puis relance le jeu.");
+                                    "Saisis-le sur le portail avec ton invitation, puis relance le jeu.\n" +
+                                    "(Avec l'appli ClashRetro : « Créer un compte » au lancement.)");
                     if (!reader.IsDBNull(3))
                         return Deny("Compte désactivé.");
                     if (!reader.IsDBNull(2))

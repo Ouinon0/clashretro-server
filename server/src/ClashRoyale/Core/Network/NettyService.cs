@@ -45,8 +45,10 @@ namespace ClashRoyale.Core.Network
 
                 ServerBootstrap
                     .Option(ChannelOption.SoBacklog, 100)
-                    .Option(ChannelOption.TcpNodelay, true)
-                    .Option(ChannelOption.SoKeepalive, true)
+                    // Options des connexions des joueurs (ChildOption) : sans TCP_NODELAY, Nagle retardait
+                    // chaque petit message de combat de plusieurs dizaines de millisecondes.
+                    .ChildOption(ChannelOption.TcpNodelay, true)
+                    .ChildOption(ChannelOption.SoKeepalive, true)
                     .Handler(new LoggingHandler("SRV-ICR"))
                     .ChildHandler(new ActionChannelInitializer<IChannel>(channel =>
                     {
@@ -67,8 +69,10 @@ namespace ClashRoyale.Core.Network
 
                 ClusterBootstrap
                     .Option(ChannelOption.SoBacklog, 100)
-                    .Option(ChannelOption.TcpNodelay, true)
-                    .Option(ChannelOption.SoKeepalive, true)
+                    // Options des connexions des joueurs (ChildOption) : sans TCP_NODELAY, Nagle retardait
+                    // chaque petit message de combat de plusieurs dizaines de millisecondes.
+                    .ChildOption(ChannelOption.TcpNodelay, true)
+                    .ChildOption(ChannelOption.SoKeepalive, true)
                     .Handler(new LoggingHandler("SRV-ICR"))
                     .ChildHandler(new ActionChannelInitializer<IChannel>(channel =>
                     {

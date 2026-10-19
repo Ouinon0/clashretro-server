@@ -19,9 +19,20 @@ namespace ClashRoyale.Protocol.Messages.Server
             Writer.WriteVInt(Turn);
             Writer.WriteVInt(0);
 
-            Writer.WriteVInt(Commands.Count);
+            // ClashRetro : la boucle d'origine (i < Count avec Dequeue) n'écrivait que la moitié des
+            // commandes annoncées ; on vide la file d'un coup, sous verrou (remplie par un autre fil).
+            byte[][] commands;
+            if (Commands == null)
+                commands = new byte[0][];
+            else
+                lock (Commands)
+                {
+                    commands = Commands.ToArray();
+                    Commands.Clear();
+                }
 
-            for (var i = 0; i < Commands.Count; i++) Writer.WriteBytes(Commands.Dequeue());
+            Writer.WriteVInt(commands.Length);
+            foreach (var command in commands) Writer.WriteBytes(command);
         }
     }
 }

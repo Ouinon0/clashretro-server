@@ -128,6 +128,8 @@ namespace ClashRoyale.Core
         [JsonProperty("require_invite")] public bool RequireInvite = true;
         // Sel du code d'appairage : à générer par instance (voir .env).
         [JsonProperty("pairing_secret")] public string PairingSecret = "";
+        // Fichiers d'administration (comptes.txt, premier-admin.txt) : voir Core/AdminFile.
+        [JsonProperty("admin_directory")] public string AdminDirectory = "admin";
     }
 
     public class BattleLogSettings

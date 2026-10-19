@@ -42,7 +42,8 @@ cat > config.json <<JSON
   },
   "access": {
     "require_invite": ${REQUIRE_INVITE:-true},
-    "pairing_secret": "${PAIRING_SECRET}"
+    "pairing_secret": "${PAIRING_SECRET}",
+    "admin_directory": "${ADMIN_DIR:-$WORK/admin}"
   },
   "battle_logs": {
     "enabled": ${BATTLE_LOGS:-true},

@@ -69,6 +69,21 @@ namespace ClashRoyale.Protocol.Commands.Server
             Data.WriteVInt(SpellIndex);
         }
 
+        /// <summary>
+        ///     Seuls les octets écrits sont relayés : le tableau entier du tampon (Array) contenait des zéros
+        ///     de remplissage, et une deuxième pose dans le même battement était lue de travers (perdue).
+        /// </summary>
+        private static void Enqueue(System.Collections.Generic.Queue<byte[]> queue, IByteBuffer buffer)
+        {
+            if (queue == null) return;
+            var bytes = new byte[buffer.ReadableBytes];
+            buffer.GetBytes(buffer.ReaderIndex, bytes);
+            lock (queue)
+            {
+                queue.Enqueue(bytes);
+            }
+        }
+
         public override void Process()
         {
             var battle = Device.Player.Battle;
@@ -77,7 +92,9 @@ namespace ClashRoyale.Protocol.Commands.Server
             // dépassé quand le relais arrive (un client simule au plus 15 ticks au-delà du dernier tour
             // reçu ; on garde un tour de marge pour la gigue du minuteur). Les deux clients exécutent
             // donc la pose au même tick, même si l'émetteur est en retard.
-            ClientTick = System.Math.Max(ClientTick, (battle.BattleTime + 2) * 10 + 16);
+            // ClashRetro 0.3 : le client fixe lui-même un tick d'exécution sûr (horloge du serveur + délai) et
+            // programme sa pose sans attendre l'écho ; le serveur ne le repousse que s'il est déjà dépassé.
+            ClientTick = System.Math.Max(ClientTick, battle.BattleTime * 10 + 4);
             battle.RecordPlacement(Device.Player.Home.Id, ClassId, InstanceId, TroopLevel, X, Y, ClientTick);
 
             Data = Unpooled.Buffer();
@@ -94,7 +111,7 @@ namespace ClashRoyale.Protocol.Commands.Server
                 buffer.WriteVInt(X);
                 buffer.WriteVInt(Y);
 
-                battle.GetOwnQueue(Device.Player.Home.Id).Enqueue(buffer.Array);
+                Enqueue(battle.GetOwnQueue(Device.Player.Home.Id), buffer);
             }
 
             var enemyBuffer = Unpooled.Buffer(9);
@@ -117,11 +134,11 @@ namespace ClashRoyale.Protocol.Commands.Server
 
                     foreach (var queue in others)
                     {
-                        queue.Enqueue(enemyBuffer.Array);
+                        Enqueue(queue, enemyBuffer);
                     }
                 }
                 else 
-                    battle.GetEnemyQueue(Device.Player.Home.Id).Enqueue(enemyBuffer.Array);
+                    Enqueue(battle.GetEnemyQueue(Device.Player.Home.Id), enemyBuffer);
             }
 
             //battle.Replay.AddCommand(Type, ClientTick - 20, ClientTick, SenderHighId, SenderLowId, ClassId * 1000000 + InstanceId, X, Y, SpellDeckIndex);

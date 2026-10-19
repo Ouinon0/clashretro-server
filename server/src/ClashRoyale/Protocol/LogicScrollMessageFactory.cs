@@ -45,6 +45,7 @@ namespace ClashRoyale.Protocol
                 //{14105, typeof(HomeLogicStoppedMessage)},
                 {14107, typeof(CancelMatchmakeMessage)},
                 {14199, typeof(BattleEndMessage)},
+                {14650, typeof(AccountMessage)},
                 {14190, typeof(FriendlyRoomMessage)},
                 {14191, typeof(ClanCardRequestMessage)},
                 {14192, typeof(ClanDonateMessage)},

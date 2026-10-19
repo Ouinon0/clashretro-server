@@ -4,8 +4,11 @@ Le serveur de jeu ne fait que lire `devices`/`accounts` (AccessGate.cs) ; tout c
 passe par ici. Schéma : db/init/02_portal.sql.
 """
 import csv
+import base64
 import functools
 import glob
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -128,6 +131,28 @@ def inject():
     return {"user": current_user(), "csrf": session["csrf"]}
 
 
+PBKDF2_ITERATIONS = 210000
+
+
+def hash_password(password):
+    """Même format que le serveur de jeu (Core/Accounts.cs) : un compte sert au jeu et au portail."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS, 32)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}"
+
+
+def verify_password(password, stored):
+    if stored.startswith("pbkdf2_sha256$"):
+        _, iterations, salt, digest = stored.split("$")
+        expected = base64.b64decode(digest)
+        got = hashlib.pbkdf2_hmac("sha256", password.encode(), base64.b64decode(salt), int(iterations), len(expected))
+        return hmac.compare_digest(got, expected)
+    try:
+        return hasher.verify(stored, password)   # anciens comptes argon2id
+    except VerifyMismatchError:
+        return False
+
+
 def random_code(length=12):
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(length))
 
@@ -139,14 +164,16 @@ def login():
     if request.method == "POST":
         user = query("SELECT id, password_hash FROM accounts WHERE username = %s AND disabled_at IS NULL",
                      (request.form["username"].strip(),), one=True)
-        try:
-            if user and hasher.verify(user["password_hash"], request.form["password"]):
-                session.clear()
-                session["uid"] = user["id"]
-                target = request.args.get("next", "")
-                return redirect(target if target.startswith("/") and not target.startswith("//") else url_for("home"))
-        except VerifyMismatchError:
-            pass
+        if user and verify_password(request.form["password"], user["password_hash"]):
+            if not user["password_hash"].startswith("pbkdf2_sha256$"):
+                # Ancien hachage argon2 : converti pour que le même compte serve aussi dans le jeu.
+                execute("UPDATE accounts SET password_hash = %s WHERE id = %s",
+                        (hash_password(request.form["password"]), user["id"]))
+                db().commit()
+            session.clear()
+            session["uid"] = user["id"]
+            target = request.args.get("next", "")
+            return redirect(target if target.startswith("/") and not target.startswith("//") else url_for("home"))
         flash("Identifiants invalides.")
     return render_template("login.html")
 
@@ -177,7 +204,7 @@ def register():
             flash("Pseudo déjà pris.")
             return render_template("register.html", code=code)
         uid = execute("INSERT INTO accounts (username, password_hash, role_id, invited_by) VALUES (%s, %s, %s, %s)",
-                      (username, hasher.hash(password), invite["role_id"], invite["created_by"]))
+                      (username, hash_password(password), invite["role_id"], invite["created_by"]))
         execute("UPDATE invitations SET used_by = %s, used_at = UTC_TIMESTAMP() WHERE id = %s", (uid, invite["id"]))
         session.clear()
         session["uid"] = uid
@@ -309,9 +336,7 @@ def delete_my_data():
     compte anonymisé (le journal d'audit ne garde que l'identifiant numérique)."""
     user = current_user()
     row = query("SELECT password_hash FROM accounts WHERE id = %s", (user["id"],), one=True)
-    try:
-        hasher.verify(row["password_hash"], request.form.get("password", ""))
-    except VerifyMismatchError:
+    if not verify_password(request.form.get("password", ""), row["password_hash"]):
         flash("Mot de passe incorrect : rien n'a été supprimé.")
         return redirect(url_for("home"))
     if user["can_admin"] and query("SELECT COUNT(*) AS n FROM accounts a JOIN roles r ON r.id = a.role_id "
@@ -538,6 +563,6 @@ def create_admin():
     username = click.prompt("Pseudo admin")
     password = click.prompt("Mot de passe", hide_input=True, confirmation_prompt=True)
     execute("INSERT INTO accounts (username, password_hash, role_id) "
-            "SELECT %s, %s, id FROM roles WHERE name = 'admin'", (username, hasher.hash(password)))
+            "SELECT %s, %s, id FROM roles WHERE name = 'admin'", (username, hash_password(password)))
     db().commit()
     click.echo(f"Admin {username} créé.")

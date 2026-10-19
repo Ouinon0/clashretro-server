@@ -15,6 +15,29 @@ namespace ClashRoyale.Database.Cache
         private long _seed = 1;
 
         /// <summary>
+        ///     ClashRetro : appariement atomique. Renvoie un adversaire connecté déjà en file (retiré de la
+        ///     file), sinon met le joueur en file et renvoie null. Avant, Dequeue puis Enqueue sous deux
+        ///     verrous séparés laissaient deux joueurs simultanés en file sans jamais les apparier.
+        /// </summary>
+        public Player TryMatch(Player player)
+        {
+            lock (_playerQueue)
+            {
+                _playerQueue.RemoveAll(p => p == null || !p.Device.IsConnected || p.Battle != null);
+                var enemy = _playerQueue.FirstOrDefault(p => p.Home.Id != player.Home.Id);
+                if (enemy != null)
+                {
+                    _playerQueue.Remove(enemy);
+                    _playerQueue.Remove(player);
+                    return enemy;
+                }
+            }
+
+            Enqueue(player);
+            return null;
+        }
+
+        /// <summary>
         ///     Get a player from the queue and remove it
         /// </summary>
         public Player Dequeue

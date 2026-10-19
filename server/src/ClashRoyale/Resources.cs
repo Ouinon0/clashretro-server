@@ -74,6 +74,8 @@ namespace ClashRoyale
             Leaderboard = new Leaderboard();
 
             GameJobs.Start();
+            Accounts.EnsureSchemaAsync().Wait();
+            AdminFile.Start();
 
             StartTime = DateTime.UtcNow;
 
