@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{NAME}}</title>
+<style>
+:root { --bg: #0d1f45; --panel: #16336b; --line: #2c5aa8; --gold: #ffd23f; --text: #f2f6ff; --muted: #a9bde3; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+  background: radial-gradient(circle at 50% 30%, #2a62c4 0, #123070 45%, #081633 100%); display: flex; justify-content: center; }
+main { width: min(560px, 100% - 32px); padding: 40px 0; }
+h1 { text-align: center; font-size: 30px; letter-spacing: .5px; text-shadow: 0 3px 0 #000a; margin: 0 0 8px; }
+.sub { text-align: center; color: var(--muted); margin: 0 0 28px; }
+.card { background: var(--panel); border: 3px solid var(--line); border-radius: 18px; padding: 22px; margin-bottom: 18px;
+  box-shadow: 0 6px 0 #0007; }
+.card h2 { margin: 0 0 12px; font-size: 20px; }
+.btn { display: block; text-align: center; padding: 16px; border-radius: 14px; font-weight: 800; font-size: 19px; color: #fff;
+  text-decoration: none; background: linear-gradient(#5ccf3f, #2f9a1f); border-bottom: 5px solid #1d6b12; text-shadow: 0 2px 0 #0007; }
+.btn.blue { background: linear-gradient(#55a8ff, #2b6fdc); border-bottom-color: #1a4a99; }
+.code { font: 800 34px ui-monospace, monospace; letter-spacing: 6px; text-align: center; background: #0a1a3a; border-radius: 12px;
+  padding: 14px; margin: 10px 0; color: var(--gold); user-select: all; }
+ol { padding-left: 22px; line-height: 1.6; }
+.muted { color: var(--muted); font-size: 14px; }
+.warn { color: #ffb3a8; }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{NAME}}</h1>
+  <p class="sub">Clash Royale de l'Âge d'Or, entre amis</p>
+
+  <div class="card" id="invite" hidden>
+    <h2>Tu es invité !</h2>
+    <p>Ton code d'invitation :</p>
+    <div class="code" id="code">{{CODE}}</div>
+    <button class="btn blue" id="copy" type="button" style="width:100%;border:0;cursor:pointer">Copier le code</button>
+  </div>
+  <div class="card warn" id="bad" hidden>Cette invitation n'est plus valable (déjà utilisée, expirée ou annulée).</div>
+
+  <div class="card">
+    <h2>1. Installe l'appli</h2>
+    <a class="btn" id="apk" href="/app.apk">Télécharger pour Android</a>
+    <p class="muted" id="noapk" hidden>L'appli n'est pas encore disponible au téléchargement sur ce serveur : demande-la à l'admin.</p>
+  </div>
+  <div class="card">
+    <h2>2. Connecte-toi</h2>
+    <ol>
+      <li>Ouvre l'appli et choisis ton pseudo.</li>
+      <li>Dans <b>Menu ☰ → Paramètres → Serveur</b>, indique : <b id="addr"></b></li>
+      <li id="step-code">Saisis ton code d'invitation quand l'appli le demande.</li>
+    </ol>
+  </div>
+</main>
+<script>
+const hasCode = "{{HAS_CODE}}" === "1", badCode = "{{BAD_CODE}}" === "1", hasApk = "{{HAS_APK}}" === "1";
+document.getElementById("invite").hidden = !hasCode;
+document.getElementById("bad").hidden = !badCode;
+if (!hasApk) { document.getElementById("apk").hidden = true; document.getElementById("noapk").hidden = false; }
+document.getElementById("addr").textContent = location.hostname + ("{{PORT}}" === "19340" ? "" : ":{{PORT}}");
+if ("{{ACCESS}}" !== "invite") document.getElementById("step-code").hidden = true;
+document.getElementById("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText(document.getElementById("code").textContent); document.getElementById("copy").textContent = "Copié !"; } catch (e) {}
+};
+</script>
+</body>
+</html>

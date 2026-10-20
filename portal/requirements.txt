@@ -1,4 +1,0 @@
-flask==3.0.3
-pymysql==1.1.1
-argon2-cffi==23.1.0
-waitress==3.0.0

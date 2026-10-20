@@ -1,126 +1,37 @@
-# ClashRetro — serveur privé Clash Royale 1.9 pour TrueNAS SCALE
-# (Apps → Discover → ⋮ → Install via YAML, coller ce fichier, Save).
+# Clash Royale : Modern Classic — TrueNAS SCALE (Apps → Discover → ⋮ → Install via YAML).
 #
-# Rien à préparer ni à inventer : au premier lancement, le service « init » crée le dossier
-# /mnt/Pool2/data/clash, ses droits et des secrets aléatoires (dossier secrets/, jamais à partager).
-# Seul réglage éventuel : le chemin du dossier ci-dessous (DATA), s'il n'est pas sur Pool2.
-#
-# Ensuite, dans /mnt/Pool2/data/clash/game/admin/ :
-#   admins.txt  → une ligne « pseudo : mot de passe » crée un compte admin (le mot de passe est effacé)
-#   comptes.txt → rôle, invitations, actif / bloqué / nouveau-mdp de chaque joueur
-# Dans l'appli : serveur IP_DU_NAS:9339, puis « Me connecter » (admin) ou « Créer un compte » (code
-# d'invitation d'un ami, visible dans Paramètres → Compte).
-#
-# Mise à jour : Apps → clashretro → Update (les images sont reconstruites à chaque version).
-# Sauvegarde : snapshot périodique du dataset qui contient /mnt/Pool2/data/clash.
-name: clashretro
+# Seul le chemin du dossier des données est à adapter (ici /mnt/Pool2/data/clash/modern, à côté des données de l'ancien serveur) : il est
+# créé au premier lancement avec les bons droits. Ensuite :
+#   - admin web : http://IP_DU_NAS:19341/admin (mot de passe : journal de l'app au premier
+#     démarrage, ou CLASH_ADMIN_PASSWORD ci-dessous) ;
+#   - dans l'appli : Menu ☰ → Paramètres → Serveur = IP_DU_NAS ;
+#   - l'APK à télécharger par les amis : déposer clash-modern.apk dans le dossier des données.
 
-x-data: &data
-  - /mnt/Pool2/data/clash:/data     # ← DATA : seul chemin à adapter si besoin
-
-x-common: &common
-  user: "950:950"
-  restart: unless-stopped
-  volumes: *data
-  logging:                          # journaux Docker plafonnés (pas de disque rempli à la longue)
-    driver: json-file
-    options: {max-size: "10m", max-file: "3"}
-  depends_on: &after-init
-    init:
-      condition: service_completed_successfully
-
-x-db: &db
-  TZ: Europe/Paris
-  MYSQL_HOST: db
-  MYSQL_DATABASE: clashretro
-  MYSQL_USER: clashretro
-  MYSQL_PASSWORD_FILE: /data/secrets/db_password
+name: clash
 
 services:
-  # Une fois au démarrage : dossiers, propriétaire 950:950, secrets aléatoires s'ils n'existent pas.
-  # Installation d'avant la 0.3 (mot de passe de base choisi à la main) : le remettre dans
-  # OLD_DB_PASSWORD au premier démarrage de cette version, sinon la base ne s'ouvre plus.
   init:
-    image: ghcr.io/ouinon0/clashretro-game:latest
-    user: "0:0"
+    image: busybox:1.36
+    command: ["sh", "-c", "mkdir -p /data && chown -R 950:950 /data"]
+    volumes:
+      - /mnt/Pool2/data/clash/modern:/data
     restart: "no"
-    volumes: *data
-    environment:
-      OLD_DB_PASSWORD: ""
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -eu
-        mkdir -p /data/secrets /data/mariadb /data/game/admin /data/game/logs/battles
-        secret() { [ -s "/data/secrets/$$1" ] || { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/data/secrets/$$1"; echo "secret $$1 créé"; }; }
-        if [ -n "$$OLD_DB_PASSWORD" ] && [ ! -s /data/secrets/db_password ]; then printf '%s' "$$OLD_DB_PASSWORD" > /data/secrets/db_password; fi
-        for s in db_password db_root_password cluster_key pairing_secret portal_secret; do secret "$$s"; done
-        chown -R 950:950 /data/secrets /data/game
-        chown 950:950 /data /data/mariadb
-        chmod 700 /data/secrets && chmod 600 /data/secrets/*
-        echo "ClashRetro : dossier /data prêt"
 
-  db:
-    <<: *common
-    image: ghcr.io/ouinon0/clashretro-db:latest        # MariaDB 11.4 + schéma ClashRetro
-    stop_grace_period: 30s
+  clash:
+    image: ghcr.io/ouinon0/clashretro-modern:latest
+    user: "950:950"
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    ports:
+      - "19340:19340/udp"
+      - "19341:19341/tcp"
+    volumes:
+      - /mnt/Pool2/data/clash/modern:/data
     environment:
       TZ: Europe/Paris
-      MARIADB_DATABASE: clashretro
-      MARIADB_USER: clashretro
-      MARIADB_PASSWORD_FILE: /data/secrets/db_password
-      MARIADB_ROOT_PASSWORD_FILE: /data/secrets/db_root_password
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--defaults-file=/data/mariadb/.my-healthcheck.cnf", "--connect", "--innodb_initialized"]
-      start_period: 60s
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  game:
-    <<: *common
-    image: ghcr.io/ouinon0/clashretro-game:latest
-    depends_on:
-      <<: *after-init
-      db:
-        condition: service_healthy
-    ports:
-      - "9339:9339"                 # port du jeu (dans l'appli : IP_DU_NAS:9339)
-    environment:
-      <<: *db
-      GAME_WORK_DIR: /data/game     # config générée, journaux, dossier admin/
-      BATTLE_LOG_DIR: /data/game/logs/battles
-      CLUSTER_KEY_FILE: /data/secrets/cluster_key
-      PAIRING_SECRET_FILE: /data/secrets/pairing_secret
-      # --- Accès ---
-      REQUIRE_INVITE: "true"        # false = n'importe qui crée un compte sans code (tests seulement)
-      # --- Progression (le jeu d'origine = multiplicateurs 1, durée 100, prix 100) ---
-      START_GOLD: "5000"            # or d'un nouveau compte
-      START_GEMS: "1000000"         # gemmes d'un nouveau compte
-      CARD_MULTIPLIER: "3"          # cartes gagnées dans les coffres × 3
-      GOLD_MULTIPLIER: "5"          # or gagné × 5
-      MIN_CHEST_GOLD: "100"         # or minimum par coffre
-      UNLOCK_TIME_PERCENT: "25"     # durée d'ouverture des coffres (25 % : argent en 45 min au lieu de 3 h)
-      SHOP_PRICE_PERCENT: "50"      # prix du magasin (50 % = moitié prix)
-      CHAT_CHEATS: "false"          # commandes /max, /gold… dans le chat de clan
-      # --- Journal de combat anonyme (statistiques d'équilibrage, sans pseudo ni IP) ---
-      BATTLE_LOGS: "true"
-      BATTLE_LOG_RETENTION_DAYS: "90"
-
-  # Facultatif : statistiques des combats, évènements (bonus d'or…), dons, ancien client 32 bits, et
-  # pages ouvertes par les QR codes de combat amical. Les comptes se gèrent dans l'appli et admin/.
-  portal:
-    <<: *common
-    image: ghcr.io/ouinon0/clashretro-portal:latest
-    depends_on:
-      <<: *after-init
-      db:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
-    environment:
-      <<: *db
-      PORTAL_SECRET_FILE: /data/secrets/portal_secret
-      PORTAL_SECURE_COOKIE: "false" # true si le portail est servi en HTTPS (reverse proxy)
-      INVITE_VALID_DAYS: "14"
-      BATTLE_LOG_DIR: /data/game/logs/battles
+      # CLASH_ADMIN_PASSWORD: "change-moi"
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
